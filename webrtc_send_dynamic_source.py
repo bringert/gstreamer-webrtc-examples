@@ -34,12 +34,11 @@ videotestsrc is-live=true pattern=ball ! videoconvert ! queue !
  x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30 intra-refresh=true"""
 
 SOURCE_2_DESC = """
-videotestsrc is-live=true pattern=ball background-color=0xFF00FF00 ! videoconvert ! queue !
+videotestsrc is-live=true pattern=smpte background-color=0xFF00FF00 ! videoconvert ! queue !
  x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30 intra-refresh=true
 """
 
 WEBRTC_OUTPUT_DESC = """
-queue !
 rtph264pay aggregate-mode=zero-latency config-interval=-1 !
 application/x-rtp,media=video,encoding-name=H264,payload=96 !
 queue !
@@ -142,17 +141,13 @@ class WebRTCClient:
     def create_source_bin(self):
         logger.info(f"Creating new video source bin for source {self.source}")
         if self.source == "1":
-            bin = Gst.parse_bin_from_description(SOURCE_1_DESC, True)
+            return Gst.parse_bin_from_description(SOURCE_1_DESC, True)
         elif self.source == "2":
-            bin = Gst.parse_bin_from_description(SOURCE_2_DESC, True)
+            return Gst.parse_bin_from_description(SOURCE_2_DESC, True)
         else:
             raise ValueError(f"Invalid source: {self.source}")
 
-        if not bin:
-            raise Exception(f"Failed to create new source bin for source {self.source}")
-        return bin
-
-    def update_source_bin(self):
+    def set_source_bin(self, src_bin):
         if self.video_src_bin:
             logger.info("Stopping old source")
             self.video_src_bin.set_state(Gst.State.NULL)
@@ -161,15 +156,16 @@ class WebRTCClient:
             logger.info("Removing video source from pipeline")
             self.pipe.remove(self.video_src_bin)
 
-        logger.info("Creating new video source bin")
-        self.video_src_bin = self.create_source_bin()
-        self.pipe.add(self.video_src_bin)
+        if src_bin:
+            logger.info("Setting new video source bin")
+            self.video_src_bin = src_bin
+            self.pipe.add(self.video_src_bin)
 
-        logger.info("Linking new video source to webrtcbin")
-        self.video_src_bin.link(self.output_bin)
+            logger.info("Linking new video source to webrtcbin")
+            self.video_src_bin.link(self.output_bin)
 
-        logger.info("Syncing new video source state with pipeline")
-        self.video_src_bin.sync_state_with_parent()
+            logger.info("Syncing new video source state with pipeline")
+            self.video_src_bin.sync_state_with_parent()
 
 
     def start_pipeline(self):
@@ -179,7 +175,7 @@ class WebRTCClient:
         self.event_loop.add_reader(bus.get_pollfd().fd, self.on_bus_poll_cb, bus)
 
         self.add_output_bin()
-        self.update_source_bin()
+        self.set_source_bin(self.create_source_bin())
 
         # Set up webrtc callbacks
         self.webrtc = self.output_bin.get_by_name("webrtc_send")
@@ -194,10 +190,9 @@ class WebRTCClient:
 
         self.pipe.set_state(Gst.State.PLAYING)
 
-    def on_source_idle(self, pad, info, user_data):
-        logger.info("Source pad idle")
-
-        self.update_source_bin()
+    def on_source_idle(self, pad, info, new_src_bin):
+        logger.info("Switching to new source")
+        self.set_source_bin(new_src_bin)
 
         # TODO: renegotiation is needed if we change e.g. the source format
         #logger.info("Renegotiating")
@@ -214,11 +209,16 @@ class WebRTCClient:
             logger.info("Pipeline is not running, no source to replace")
             return
 
-        logger.info("Adding idle probe to source pad")
+        try:
+            new_src_bin = self.create_source_bin()
+        except Exception:
+            logger.exception("Failed to create new source bin")
+            new_src_bin = None
+
+        logger.info("Waiting for source pad to become idle before switching sources")
         self.video_src_bin.get_static_pad("src").add_probe(
-            Gst.PadProbeType.IDLE, self.on_source_idle, None
+            Gst.PadProbeType.IDLE, self.on_source_idle, new_src_bin
         )
-        logger.info("Added idle probe to source pad")
 
     def handle_json(self, message):
         try:
