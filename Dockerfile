@@ -23,7 +23,8 @@ RUN apt-get update -y && apt-get install -y \
         python3-cryptography \
         python3-simplejson
 
-ENV GST_DEBUG=*:2
+ENV GST_DEBUG=*:3
+ENV PYTHONUNBUFFERED=1
 
 WORKDIR /code
 

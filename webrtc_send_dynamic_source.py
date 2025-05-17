@@ -16,20 +16,18 @@ import asyncio
 import sys
 import json
 import argparse
+import logging
 
 import gi
 
 gi.require_version("Gst", "1.0")
-from gi.repository import Gst  # NOQA
-
 gi.require_version("GstWebRTC", "1.0")
-from gi.repository import GstWebRTC  # NOQA
-
 gi.require_version("GstSdp", "1.0")
-from gi.repository import GstSdp  # NOQA
-
 gi.require_version("GLib", "2.0")
-from gi.repository import GLib
+from gi.repository import Gst, GstWebRTC, GstSdp, GLib
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 SOURCE_1_DESC = """
 videotestsrc is-live=true pattern=ball ! videoconvert ! queue !
@@ -44,15 +42,6 @@ videotestsrc is-live=true pattern=ball background-color=0xFF00FF00 ! videoconver
  rtph264pay aggregate-mode=zero-latency config-interval=-1 !
  queue ! capsfilter caps="application/x-rtp,media=video,encoding-name=H264,payload=97"
 """
-
-
-def print_status(msg):
-    print(f"--- {msg}")
-
-
-def print_error(msg):
-    print(f"!!! {msg}", file=sys.stderr)
-
 
 class WebRTCClient:
     def __init__(
@@ -78,7 +67,7 @@ class WebRTCClient:
 
     async def send(self, msg):
         assert self.conn
-        print(f">>> {msg}")
+        logger.info(f">>> {msg}")
         await self.conn.send(msg)
 
     async def connect(self):
@@ -105,7 +94,7 @@ class WebRTCClient:
             msg = bus.pop()
             if msg.type == Gst.MessageType.ERROR:
                 err = msg.parse_error()
-                print("ERROR:", err.gerror, err.debug)
+                logger.error(f"{err.gerror} {err.debug}")
                 remove_bus_poll()
                 break
             elif msg.type == Gst.MessageType.EOS:
@@ -119,15 +108,15 @@ class WebRTCClient:
         reply = promise.get_reply()
         offer = reply["offer"]
         promise = Gst.Promise.new()
-        print_status("Offer created, setting local description")
+        logger.info("Offer created, setting local description")
         self.webrtc.emit("set-local-description", offer, promise)
         promise.interrupt()  # we don't care about the result, discard it
         text = offer.sdp.as_text()
-        print_status("Sending offer:\n%s" % text)
+        logger.info(f"Sending offer:\n{text}")
         self.send_soon(json.dumps({"sdp": {"type": "offer", "sdp": text}}))
 
     def on_negotiation_needed(self, _):
-        print_status("Negotiation needed, creating offer")
+        logger.info("Negotiation needed, creating offer")
         promise = Gst.Promise.new_with_change_func(self.on_offer_created, None, None)
         self.webrtc.emit("create-offer", None, promise)
 
@@ -138,9 +127,10 @@ class WebRTCClient:
 
     def on_ice_gathering_state_notify(self, pspec, _):
         state = self.webrtc.get_property("ice-gathering-state")
-        print_status(f"ICE gathering state changed to {state}")
+        logger.info(f"ICE gathering state changed to {state}")
 
     def create_source_bin(self):
+        logger.info(f"Creating new video source bin for source {self.source}")
         if self.source == "1":
             bin = Gst.parse_bin_from_description(SOURCE_1_DESC, True)
         elif self.source == "2":
@@ -148,11 +138,13 @@ class WebRTCClient:
         else:
             raise ValueError(f"Invalid source: {self.source}")
 
+        if not bin:
+            raise Exception(f"Failed to create new source bin for source {self.source}")
         bin.set_name("source-bin")
         return bin
 
     def start_pipeline(self):
-        print_status("Creating pipeline")
+        logger.info("Creating pipeline")
         self.pipe = Gst.Pipeline.new()
 
         # Create and add video bin
@@ -181,88 +173,93 @@ class WebRTCClient:
 
         self.pipe.set_state(Gst.State.PLAYING)
 
+    def dispose_element_now(self, element):
+        logger.info(f"Disposing element {element.get_name()} now")
+        element.set_state(Gst.State.NULL)
+
     def dispose_element_later(self, element):
-        # OR: GLib.idle_add(dispose_src_cb, pdata.src)
-        self.event_loop.call_soon_threadsafe(element.set_state, Gst.State.NULL)
+        # We can't set the state to NULL within the streaming thread,
+        # so we use GLib.idle_add to schedule it for later.
+        GLib.idle_add(self.dispose_element_now, element)
 
-    def on_source_blocked(self, pad, info, user_data):
-        print_status("Source pad blocked")
-        # Remove the blocking probe
-        pad.remove_probe(info.id)
+    def on_source_idle(self, pad, info, user_data):
+        logger.info("Source pad idle")
 
-        # Get the source bin
-        old_bin = self.pipe.get_by_name("source-bin")
-        if not old_bin:
-            raise Exception("No source bin found")
+        old_bin = self.get_video_src_bin()
 
-        print_status("Unlinking from webrtcbin")
+        logger.info("Unlinking video source from webrtcbin")
+        # Should we unline the pad instead of the bin? Does it matter?
         old_bin.unlink(self.webrtc)
 
-        print_status("Removing from pipeline")
+        logger.info("Removing video source from pipeline")
         self.pipe.remove(old_bin)
 
-        GLib.idle_add(lambda: old_bin.set_state(Gst.State.NULL))
-        # self.event_loop.call_soon_threadsafe(old_bin.set_state, Gst.State.NULL)
+        self.dispose_element_later(old_bin)
 
-        print_status("Creating new source bin")
         new_bin = self.create_source_bin()
-        if not new_bin:
-            raise Exception(f"Failed to create new source bin for source {self.source}")
 
-        print_status("Adding to pipeline")
+        logger.info("Adding new video source to pipeline")
         self.pipe.add(new_bin)
 
-        print_status("Linking to webrtcbin")
+        logger.info("Linking new video source webrtcbin")
+        # Do we need to link the pads instead of the bins? Does it matter?
         if not new_bin.link(self.webrtc):
             raise Exception("Failed to link new source bin to webrtcbin")
 
-        print_status("Setting new bin to PLAYING state")
-        new_bin.set_state(Gst.State.PLAYING)
+        #logger.info("Setting new bin to PLAYING state")
+        #new_bin.set_state(Gst.State.PLAYING)
+        logger.info("Syncing new video source state with pipeline")
+        # Should this be called on the pad instead?
+        new_bin.sync_state_with_parent()
 
-        print_status("Syncing children states")
-        new_bin.sync_children_states()
+        #logger.info("Syncing children states")
+        #new_bin.sync_children_states()
 
-        print_status("Renegotiating")
+        logger.info("Renegotiating")
         self.on_negotiation_needed(self.webrtc)
 
-        print_status("Source bin replacement completed")
-        return Gst.PadProbeReturn.DROP
+        logger.info("Source bin replacement completed")
+        return Gst.PadProbeReturn.REMOVE
+
+    def get_video_src_bin(self):
+        src_bin = self.pipe.get_by_name("source-bin")
+        if not src_bin:
+            raise Exception("No source bin found")
+        return src_bin
+
+    def get_video_src_pad(self):
+        src_pad = self.get_video_src_bin().get_static_pad("src")
+        if not src_pad:
+            raise Exception("No source pad found")
+        return src_pad
 
     def set_source(self, source):
-        print_status(f"Replacing source {self.source} with source {source}")
+        logger.info(f"Changing source from {self.source} to {source}")
         self.source = source
 
         if not self.pipe or not self.webrtc:
-            print_status("Pipeline is not running")
+            logger.info("Pipeline is not running, no source to replace")
             return
 
-        # Get the current source bin
-        old_bin = self.pipe.get_by_name("source-bin")
-        if not old_bin:
-            raise Exception("No source bin found")
+        srcpad = self.get_video_src_pad()
 
-        # Get the source pad
-        srcpad = old_bin.get_static_pad("src")
-        if not srcpad:
-            raise Exception("No source pad found")
-
-        print_status("Adding blocking probe to source pad")
+        logger.info("Adding blocking probe to source pad")
         srcpad.add_probe(
-            Gst.PadProbeType.BLOCK_DOWNSTREAM, self.on_source_blocked, None
+            Gst.PadProbeType.IDLE, self.on_source_idle, None
         )
-        print_status("Added blocking probe to source pad")
+        logger.info("Added blocking probe to source pad")
 
     def handle_json(self, message):
         try:
             msg = json.loads(message)
         except json.JSONDecodeError as e:
-            print_error(f"Failed to parse JSON message: {str(e)}")
-            print_error(f"Message content: {repr(message)}")
+            logger.error(f"Failed to parse JSON message: {str(e)}")
+            logger.error(f"Message content: {repr(message)}")
             raise
         if "sdp" in msg:
             sdp = msg["sdp"]["sdp"]
             if msg["sdp"]["type"] == "answer":
-                print_status("Received answer:\n%s" % sdp)
+                logger.info(f"Received answer:\n{sdp}")
                 res, sdpmsg = GstSdp.SDPMessage.new_from_text(sdp)
                 answer = GstWebRTC.WebRTCSessionDescription.new(
                     GstWebRTC.WebRTCSDPType.ANSWER, sdpmsg
@@ -277,7 +274,7 @@ class WebRTCClient:
             sdpmlineindex = ice["sdpMLineIndex"]
             self.webrtc.emit("add-ice-candidate", sdpmlineindex, candidate)
         else:
-            print_error("Unknown JSON message")
+            logger.error("Unknown JSON message")
 
     def close_pipeline(self):
         if self.pipe:
@@ -288,21 +285,21 @@ class WebRTCClient:
     async def loop(self):
         assert self.conn
         async for message in self.conn:
-            print(f"<<< {message}")
+            logger.info(f"<<< {message}")
             if message == "HELLO":
                 assert self.id_
                 if not self.peer_id:
-                    print_status(f"Waiting for peer ID: ID is {self.id_}")
+                    logger.info(f"Waiting for peer ID: ID is {self.id_}")
                 else:
-                    print_status("Have peer ID: initiating call")
+                    logger.info("Have peer ID: initiating call")
                     await self.setup_call()
             elif message == "SESSION_OK":
                 self.start_pipeline()
             elif message == "OFFER_REQUEST":
-                print_status("Received offer request, creating offer")
+                logger.info("Received offer request, creating offer")
                 self.start_pipeline()
             elif message.startswith("ERROR"):
-                print_error(message)
+                logger.error(message)
                 self.close_pipeline()
                 return 1
             else:
@@ -336,7 +333,7 @@ def check_plugin_features():
         if not feature:
             missing.append(fname)
     if missing:
-        print("Missing gstreamer elements:", *missing)
+        logger.error(f"Missing gstreamer elements: {missing}")
         return False
     return True
 
@@ -355,13 +352,12 @@ async def toggle_source_on_newline(webrtc_client):
                 break
             # Toggle between sources 1 and 2
             new_source = "2" if webrtc_client.source == "1" else "1"
-            print_status(f"Toggling source from {webrtc_client.source} to {new_source}")
             webrtc_client.set_source(new_source)
         except asyncio.CancelledError:
             break
 
 
-if __name__ == "__main__":
+def main():
     Gst.init(None)
     parser = argparse.ArgumentParser()
     parser.add_argument("--peer-id", help="String ID of the peer to connect to")
@@ -384,6 +380,9 @@ if __name__ == "__main__":
     if not args.peer_id and not args.our_id:
         print("You must pass either --peer-id or --our-id")
         sys.exit(1)
+
+    logger.info(f"Starting with source {args.source}")
+
     loop = asyncio.new_event_loop()
     c = WebRTCClient(
         loop,
@@ -399,7 +398,7 @@ if __name__ == "__main__":
         loop.run_until_complete(c.connect())
         res = loop.run_until_complete(c.loop())
     except KeyboardInterrupt:
-        print("\nShutting down...")
+        logger.info("\nShutting down...")
         res = 0
     finally:
         # Cancel stdin task when done
@@ -412,3 +411,6 @@ if __name__ == "__main__":
         c.close_pipeline()
         loop.run_until_complete(c.stop())
     sys.exit(res)
+
+if __name__ == "__main__":
+    main()
