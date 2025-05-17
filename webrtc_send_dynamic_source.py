@@ -24,8 +24,7 @@ import gi
 gi.require_version("Gst", "1.0")
 gi.require_version("GstWebRTC", "1.0")
 gi.require_version("GstSdp", "1.0")
-gi.require_version("GLib", "2.0")
-from gi.repository import Gst, GstWebRTC, GstSdp, GLib
+from gi.repository import Gst, GstWebRTC, GstSdp
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -189,28 +188,20 @@ class WebRTCClient:
 
         self.pipe.set_state(Gst.State.PLAYING)
 
-    def dispose_element_now(self, element):
-        logger.info(f"Disposing element {element.get_name()} now")
-        element.set_state(Gst.State.NULL)
-
-    def dispose_element_later(self, element):
-        # We can't set the state to NULL within the streaming thread,
-        # so we use GLib.idle_add to schedule it for later.
-        GLib.idle_add(self.dispose_element_now, element)
-
     def on_source_idle(self, pad, info, user_data):
         logger.info("Source pad idle")
 
         old_bin = self.get_video_src_bin()
 
+        # Stop the old source before unlinking
+        logger.info("Stopping old source")
+        old_bin.set_state(Gst.State.NULL)
+
         logger.info("Unlinking video source from webrtcbin")
-        # Should we unline the pad instead of the bin? Does it matter?
         old_bin.unlink(self.output_bin)
 
         logger.info("Removing video source from pipeline")
         self.pipe.remove(old_bin)
-
-        self.dispose_element_later(old_bin)
 
         new_bin = self.create_source_bin()
 
@@ -253,11 +244,11 @@ class WebRTCClient:
 
         srcpad = self.get_video_src_pad()
 
-        logger.info("Adding blocking probe to source pad")
+        logger.info("Adding idle probe to source pad")
         srcpad.add_probe(
             Gst.PadProbeType.IDLE, self.on_source_idle, None
         )
-        logger.info("Added blocking probe to source pad")
+        logger.info("Added idle probe to source pad")
 
     def handle_json(self, message):
         try:
