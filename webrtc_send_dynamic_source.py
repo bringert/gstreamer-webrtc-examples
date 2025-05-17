@@ -9,6 +9,7 @@
 # - https://github.com/GStreamer/gstreamer/blob/34741e1db21aa7749eb501b944298c791b122990/subprojects/gst-examples/webrtc/sendrecv/gst/webrtc_sendrecv.py
 #   Copyright (C) 2018 Matthew Waters <matthew@centricular.com>
 #                 2022 Nirbheek Chauhan <nirbheek@centricular.com>
+# - https://github.com/GStreamer/gst-python/blob/6fcc1433d731a76fe90efc0a146256b07318f036/examples/dynamic_src.py
 
 import random
 import websockets
