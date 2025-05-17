@@ -105,8 +105,9 @@ class WebRTCClient:
                 remove_bus_poll()
                 break
             elif msg.type == Gst.MessageType.LATENCY:
-                logger.info("Recalculating latency")
-                self.pipe.recalculate_latency()
+                if self.pipe:
+                    logger.info("Recalculating latency")
+                    self.pipe.recalculate_latency()
 
     def on_offer_created(self, promise, _, __):
         assert promise.wait() == Gst.PromiseResult.REPLIED
@@ -134,6 +135,10 @@ class WebRTCClient:
         state = self.webrtc.get_property("ice-gathering-state")
         logger.info(f"ICE gathering state changed to {state}")
 
+    def add_output_bin(self):
+        self.output_bin = Gst.parse_bin_from_description(WEBRTC_OUTPUT_DESC, True)
+        self.pipe.add(self.output_bin)
+
     def create_source_bin(self):
         logger.info(f"Creating new video source bin for source {self.source}")
         if self.source == "1":
@@ -147,36 +152,37 @@ class WebRTCClient:
             raise Exception(f"Failed to create new source bin for source {self.source}")
         return bin
 
-    def create_output_bin(self):
-        bin = Gst.parse_bin_from_description(WEBRTC_OUTPUT_DESC, True)
-        if not bin:
-            raise Exception("Failed to create output bin")
-        bin.set_name("output-bin")
-        return bin
+    def update_source_bin(self):
+        if self.video_src_bin:
+            logger.info("Stopping old source")
+            self.video_src_bin.set_state(Gst.State.NULL)
+            logger.info("Unlinking video source from webrtcbin")
+            self.video_src_bin.unlink(self.output_bin)
+            logger.info("Removing video source from pipeline")
+            self.pipe.remove(self.video_src_bin)
+
+        logger.info("Creating new video source bin")
+        self.video_src_bin = self.create_source_bin()
+        self.pipe.add(self.video_src_bin)
+
+        logger.info("Linking new video source to webrtcbin")
+        self.video_src_bin.link(self.output_bin)
+
+        logger.info("Syncing new video source state with pipeline")
+        self.video_src_bin.sync_state_with_parent()
+
 
     def start_pipeline(self):
         logger.info("Creating pipeline")
         self.pipe = Gst.Pipeline.new()
-
-        # Create and add source
-        self.video_src_bin = self.create_source_bin()
-        self.pipe.add(self.video_src_bin)
-
-        # Create and add output
-        self.output_bin = self.create_output_bin()
-        self.pipe.add(self.output_bin)
-
-        # Link source to output
-        self.video_src_bin.link(self.output_bin)
-
-        self.webrtc = self.output_bin.get_by_name("webrtc_send")
-        if not self.webrtc:
-            raise Exception("Failed to get webrtcbin from output bin")
-
-        # Set up bus and signals
         bus = self.pipe.get_bus()
         self.event_loop.add_reader(bus.get_pollfd().fd, self.on_bus_poll_cb, bus)
 
+        self.add_output_bin()
+        self.update_source_bin()
+
+        # Set up webrtc callbacks
+        self.webrtc = self.output_bin.get_by_name("webrtc_send")
         self.webrtc.connect("on-negotiation-needed", self.on_negotiation_needed)
         self.webrtc.connect("on-ice-candidate", self.send_ice_candidate_message)
         self.webrtc.connect(
@@ -191,27 +197,7 @@ class WebRTCClient:
     def on_source_idle(self, pad, info, user_data):
         logger.info("Source pad idle")
 
-        # Stop the old source before unlinking
-        logger.info("Stopping old source")
-        self.video_src_bin.set_state(Gst.State.NULL)
-
-        logger.info("Unlinking video source from webrtcbin")
-        self.video_src_bin.unlink(self.output_bin)
-
-        logger.info("Removing video source from pipeline")
-        self.pipe.remove(self.video_src_bin)
-
-        self.video_src_bin = self.create_source_bin()
-
-        logger.info("Adding new video source to pipeline")
-        self.pipe.add(self.video_src_bin)
-
-        logger.info("Linking new video source webrtcbin")
-        if not self.video_src_bin.link(self.output_bin):
-            raise Exception("Failed to link new source bin to webrtcbin")
-
-        logger.info("Syncing new video source state with pipeline")
-        self.video_src_bin.sync_state_with_parent()
+        self.update_source_bin()
 
         # TODO: renegotiation is needed if we change e.g. the source format
         #logger.info("Renegotiating")
@@ -265,6 +251,8 @@ class WebRTCClient:
         if self.pipe:
             self.pipe.set_state(Gst.State.NULL)
             self.pipe = None
+        self.output_bin = None
+        self.video_src_bin = None
         self.webrtc = None
 
     async def loop(self):
