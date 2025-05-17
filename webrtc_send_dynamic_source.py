@@ -31,17 +31,21 @@ logger = logging.getLogger(__name__)
 
 SOURCE_1_DESC = """
 videotestsrc is-live=true pattern=ball ! videoconvert ! queue !
- x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30 intra-refresh=true !
- rtph264pay aggregate-mode=zero-latency config-interval=-1 !
- queue ! capsfilter caps="application/x-rtp,media=video,encoding-name=H264,payload=97"
-"""
+ x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30 intra-refresh=true"""
 
 SOURCE_2_DESC = """
 videotestsrc is-live=true pattern=ball background-color=0xFF00FF00 ! videoconvert ! queue !
- x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30 intra-refresh=true !
- rtph264pay aggregate-mode=zero-latency config-interval=-1 !
- queue ! capsfilter caps="application/x-rtp,media=video,encoding-name=H264,payload=97"
+ x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30 intra-refresh=true
 """
+
+WEBRTC_OUTPUT_DESC = """
+queue !
+rtph264pay aggregate-mode=zero-latency config-interval=-1 !
+application/x-rtp,media=video,encoding-name=H264,payload=96 !
+queue !
+webrtcbin name=webrtc_send"""
+
+# TODO: latency=0 bundle-policy=max-bundle
 
 class WebRTCClient:
     def __init__(
@@ -54,6 +58,7 @@ class WebRTCClient:
     ):
         self.conn = None
         self.pipe = None
+        self.output_bin = None
         self.webrtc = None
         self.event_loop = loop
         self.server = server
@@ -144,25 +149,36 @@ class WebRTCClient:
         bin.set_name("source-bin")
         return bin
 
+    def create_output_bin(self):
+        bin = Gst.parse_bin_from_description(WEBRTC_OUTPUT_DESC, True)
+        if not bin:
+            raise Exception("Failed to create output bin")
+        bin.set_name("output-bin")
+        return bin
+
     def start_pipeline(self):
         logger.info("Creating pipeline")
         self.pipe = Gst.Pipeline.new()
 
-        # Create and add video bin
-        video_bin = self.create_source_bin()
-        self.pipe.add(video_bin)
+        # Create and add source
+        src_bin = self.create_source_bin()
+        self.pipe.add(src_bin)
 
-        # Create and add webrtcbin
-        self.webrtc = Gst.ElementFactory.make("webrtcbin", "sendrecv")
-        self.webrtc.set_property("latency", 0)
-        self.pipe.add(self.webrtc)
+        # Create and add output
+        self.output_bin = self.create_output_bin()
+        self.pipe.add(self.output_bin)
 
-        # Link video bin to webrtcbin
-        video_bin.link(self.webrtc)
+        # Link source to output
+        src_bin.link(self.output_bin)
+
+        self.webrtc = self.output_bin.get_by_name("webrtc_send")
+        if not self.webrtc:
+            raise Exception("Failed to get webrtcbin from output bin")
 
         # Set up bus and signals
         bus = self.pipe.get_bus()
         self.event_loop.add_reader(bus.get_pollfd().fd, self.on_bus_poll_cb, bus)
+
         self.webrtc.connect("on-negotiation-needed", self.on_negotiation_needed)
         self.webrtc.connect("on-ice-candidate", self.send_ice_candidate_message)
         self.webrtc.connect(
@@ -190,7 +206,7 @@ class WebRTCClient:
 
         logger.info("Unlinking video source from webrtcbin")
         # Should we unline the pad instead of the bin? Does it matter?
-        old_bin.unlink(self.webrtc)
+        old_bin.unlink(self.output_bin)
 
         logger.info("Removing video source from pipeline")
         self.pipe.remove(old_bin)
@@ -203,21 +219,15 @@ class WebRTCClient:
         self.pipe.add(new_bin)
 
         logger.info("Linking new video source webrtcbin")
-        # Do we need to link the pads instead of the bins? Does it matter?
-        if not new_bin.link(self.webrtc):
+        if not new_bin.link(self.output_bin):
             raise Exception("Failed to link new source bin to webrtcbin")
 
-        #logger.info("Setting new bin to PLAYING state")
-        #new_bin.set_state(Gst.State.PLAYING)
         logger.info("Syncing new video source state with pipeline")
-        # Should this be called on the pad instead?
         new_bin.sync_state_with_parent()
 
-        #logger.info("Syncing children states")
-        #new_bin.sync_children_states()
-
-        logger.info("Renegotiating")
-        self.on_negotiation_needed(self.webrtc)
+        # TODO: renegotiation is needed if we change e.g. the source format
+        #logger.info("Renegotiating")
+        #self.on_negotiation_needed(self.webrtc)
 
         logger.info("Source bin replacement completed")
         return Gst.PadProbeReturn.REMOVE
