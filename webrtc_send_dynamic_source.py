@@ -101,6 +101,7 @@ class WebRTCClient:
                 remove_bus_poll()
                 break
             elif msg.type == Gst.MessageType.LATENCY:
+                logger.info("Recalculating latency")
                 self.pipe.recalculate_latency()
 
     def on_offer_created(self, promise, _, __):
