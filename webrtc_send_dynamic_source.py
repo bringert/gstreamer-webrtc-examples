@@ -56,6 +56,7 @@ class WebRTCClient:
     ):
         self.conn = None
         self.pipe = None
+        self.video_src_bin = None
         self.output_bin = None
         self.webrtc = None
         self.event_loop = loop
@@ -144,7 +145,6 @@ class WebRTCClient:
 
         if not bin:
             raise Exception(f"Failed to create new source bin for source {self.source}")
-        bin.set_name("source-bin")
         return bin
 
     def create_output_bin(self):
@@ -159,15 +159,15 @@ class WebRTCClient:
         self.pipe = Gst.Pipeline.new()
 
         # Create and add source
-        src_bin = self.create_source_bin()
-        self.pipe.add(src_bin)
+        self.video_src_bin = self.create_source_bin()
+        self.pipe.add(self.video_src_bin)
 
         # Create and add output
         self.output_bin = self.create_output_bin()
         self.pipe.add(self.output_bin)
 
         # Link source to output
-        src_bin.link(self.output_bin)
+        self.video_src_bin.link(self.output_bin)
 
         self.webrtc = self.output_bin.get_by_name("webrtc_send")
         if not self.webrtc:
@@ -191,29 +191,27 @@ class WebRTCClient:
     def on_source_idle(self, pad, info, user_data):
         logger.info("Source pad idle")
 
-        old_bin = self.get_video_src_bin()
-
         # Stop the old source before unlinking
         logger.info("Stopping old source")
-        old_bin.set_state(Gst.State.NULL)
+        self.video_src_bin.set_state(Gst.State.NULL)
 
         logger.info("Unlinking video source from webrtcbin")
-        old_bin.unlink(self.output_bin)
+        self.video_src_bin.unlink(self.output_bin)
 
         logger.info("Removing video source from pipeline")
-        self.pipe.remove(old_bin)
+        self.pipe.remove(self.video_src_bin)
 
-        new_bin = self.create_source_bin()
+        self.video_src_bin = self.create_source_bin()
 
         logger.info("Adding new video source to pipeline")
-        self.pipe.add(new_bin)
+        self.pipe.add(self.video_src_bin)
 
         logger.info("Linking new video source webrtcbin")
-        if not new_bin.link(self.output_bin):
+        if not self.video_src_bin.link(self.output_bin):
             raise Exception("Failed to link new source bin to webrtcbin")
 
         logger.info("Syncing new video source state with pipeline")
-        new_bin.sync_state_with_parent()
+        self.video_src_bin.sync_state_with_parent()
 
         # TODO: renegotiation is needed if we change e.g. the source format
         #logger.info("Renegotiating")
@@ -221,18 +219,6 @@ class WebRTCClient:
 
         logger.info("Source bin replacement completed")
         return Gst.PadProbeReturn.REMOVE
-
-    def get_video_src_bin(self):
-        src_bin = self.pipe.get_by_name("source-bin")
-        if not src_bin:
-            raise Exception("No source bin found")
-        return src_bin
-
-    def get_video_src_pad(self):
-        src_pad = self.get_video_src_bin().get_static_pad("src")
-        if not src_pad:
-            raise Exception("No source pad found")
-        return src_pad
 
     def set_source(self, source):
         logger.info(f"Changing source from {self.source} to {source}")
@@ -242,10 +228,8 @@ class WebRTCClient:
             logger.info("Pipeline is not running, no source to replace")
             return
 
-        srcpad = self.get_video_src_pad()
-
         logger.info("Adding idle probe to source pad")
-        srcpad.add_probe(
+        self.video_src_bin.get_static_pad("src").add_probe(
             Gst.PadProbeType.IDLE, self.on_source_idle, None
         )
         logger.info("Added idle probe to source pad")
