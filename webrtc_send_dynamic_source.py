@@ -43,9 +43,7 @@ queue !
 rtph264pay aggregate-mode=zero-latency config-interval=-1 !
 application/x-rtp,media=video,encoding-name=H264,payload=96 !
 queue !
-webrtcbin name=webrtc_send"""
-
-# TODO: latency=0 bundle-policy=max-bundle
+webrtcbin name=webrtc_send latency=0 bundle-policy=max-bundle"""
 
 class WebRTCClient:
     def __init__(
