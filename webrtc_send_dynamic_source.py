@@ -31,11 +31,11 @@ logger = logging.getLogger(__name__)
 
 SOURCE_1_DESC = """
 videotestsrc is-live=true pattern=ball ! videoconvert ! queue !
- x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30 intra-refresh=true"""
+ x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30"""
 
 SOURCE_2_DESC = """
 videotestsrc is-live=true pattern=smpte background-color=0xFF00FF00 ! videoconvert ! queue !
- x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30 intra-refresh=true
+ x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30
 """
 
 WEBRTC_OUTPUT_DESC = """
