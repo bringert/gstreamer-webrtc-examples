@@ -29,6 +29,8 @@ from gi.repository import Gst, GstWebRTC, GstSdp
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# DO NOT USE intra-refresh=true, it will cause the video to freeze, at least in Chrome on MacOS
+
 SOURCE_1_DESC = """
 videotestsrc is-live=true pattern=ball ! videoconvert ! queue !
  x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30"""
@@ -149,24 +151,15 @@ class WebRTCClient:
 
     def set_source_bin(self, src_bin):
         if self.video_src_bin:
-            logger.info("Stopping old source")
             self.video_src_bin.set_state(Gst.State.NULL)
-            logger.info("Unlinking video source from webrtcbin")
             self.video_src_bin.unlink(self.output_bin)
-            logger.info("Removing video source from pipeline")
             self.pipe.remove(self.video_src_bin)
 
         if src_bin:
-            logger.info("Setting new video source bin")
             self.video_src_bin = src_bin
             self.pipe.add(self.video_src_bin)
-
-            logger.info("Linking new video source to webrtcbin")
             self.video_src_bin.link(self.output_bin)
-
-            logger.info("Syncing new video source state with pipeline")
             self.video_src_bin.sync_state_with_parent()
-
 
     def start_pipeline(self):
         logger.info("Creating pipeline")
