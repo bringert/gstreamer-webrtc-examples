@@ -252,25 +252,6 @@ def check_plugin_features():
     return True
 
 
-async def toggle_source_on_newline(webrtc_client):
-    """Read from stdin and toggle source on newline"""
-    loop = asyncio.get_event_loop()
-    reader = asyncio.StreamReader()
-    protocol = asyncio.StreamReaderProtocol(reader)
-    await loop.connect_read_pipe(lambda: protocol, sys.stdin)
-
-    while True:
-        try:
-            line = await reader.readline()
-            if not line:  # EOF
-                break
-            # Toggle between sources 1 and 2
-            new_source = "2" if webrtc_client.source == "1" else "1"
-            webrtc_client.set_source(new_source)
-        except asyncio.CancelledError:
-            break
-
-
 def main():
     Gst.init(None)
     parser = argparse.ArgumentParser()
@@ -306,8 +287,6 @@ def main():
         source=args.source,
     )
 
-    # Start stdin reading task
-    stdin_task = loop.create_task(toggle_source_on_newline(c))
     try:
         loop.run_until_complete(c.connect())
         res = loop.run_until_complete(c.loop())
@@ -315,12 +294,6 @@ def main():
         logger.info("\nShutting down...")
         res = 0
     finally:
-        # Cancel stdin task when done
-        stdin_task.cancel()
-        try:
-            loop.run_until_complete(stdin_task)
-        except asyncio.CancelledError:
-            pass
         # Ensure client is cleaned up
         c.close_pipeline()
         loop.run_until_complete(c.stop())
