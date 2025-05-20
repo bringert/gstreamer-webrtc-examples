@@ -28,6 +28,7 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /code
 
-COPY webrtc_send_dynamic_source.py /code
+COPY *.py /code
 
-ENTRYPOINT ["python3", "webrtc_send_dynamic_source.py"]
+
+ENTRYPOINT ["python3"]
