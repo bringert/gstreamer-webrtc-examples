@@ -3,7 +3,7 @@ ARG DEBIAN_VERSION=trixie
 FROM debian:${DEBIAN_VERSION}-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update -y && apt-get install -y \
+RUN apt-get update -y && apt-get install -y --no-install-recommends \
         gstreamer1.0-plugins-good \
         gstreamer1.0-plugins-bad \
         gir1.2-gst-plugins-bad-1.0 \
@@ -21,7 +21,8 @@ RUN apt-get update -y && apt-get install -y \
         python3-httpx \
         python3-gi \
         python3-cryptography \
-        python3-simplejson
+        python3-simplejson \
+        && rm -rf /var/lib/apt/lists/*
 
 ENV GST_DEBUG=*:3
 ENV PYTHONUNBUFFERED=1
