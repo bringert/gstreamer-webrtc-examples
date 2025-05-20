@@ -40,6 +40,14 @@ videotestsrc is-live=true pattern=smpte background-color=0xFF00FF00 ! videoconve
  x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30
 """
 
+SOURCE_3_DESC = """
+filesrc location=/code/videos/video.mp4 !
+decodebin ! videoscale ! videorate !
+video/x-raw,width=1920,height=1080,framerate=30/1 !
+videoconvert ! queue !
+x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30
+"""
+
 WEBRTC_OUTPUT_DESC = """
 rtph264pay aggregate-mode=zero-latency config-interval=-1 !
 application/x-rtp,media=video,encoding-name=H264,payload=96 !
@@ -146,6 +154,8 @@ class WebRTCClient:
             return Gst.parse_bin_from_description(SOURCE_1_DESC, True)
         elif self.source == "2":
             return Gst.parse_bin_from_description(SOURCE_2_DESC, True)
+        elif self.source == "3":
+            return Gst.parse_bin_from_description(SOURCE_3_DESC, True)
         else:
             raise ValueError(f"Invalid source: {self.source}")
 
