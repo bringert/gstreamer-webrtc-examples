@@ -31,16 +31,16 @@ logger = logging.getLogger(__name__)
 
 # DO NOT USE intra-refresh=true, it will cause the video to freeze, at least in Chrome on MacOS
 
-SOURCE_1_DESC = """
+SOURCE_BALL_DESC = """
 videotestsrc is-live=true pattern=ball ! videoconvert ! queue !
  x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30"""
 
-SOURCE_2_DESC = """
+SOURCE_SMPTE_DESC = """
 videotestsrc is-live=true pattern=smpte background-color=0xFF00FF00 ! videoconvert ! queue !
  x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30
 """
 
-SOURCE_3_DESC = """
+SOURCE_CANNED_DESC = """
 filesrc location=/code/videos/video.mp4 ! qtdemux name=demux
 demux.video_0 ! h264parse ! avdec_h264 ! videoscale ! videorate !
 video/x-raw,width=1920,height=1080,framerate=30/1 !
@@ -54,6 +54,15 @@ rtph264pay aggregate-mode=zero-latency config-interval=-1 !
 application/x-rtp,media=video,encoding-name=H264,payload=96 !
 queue !
 webrtcbin name=webrtc_send latency=0 bundle-policy=max-bundle"""
+
+sources = {}
+
+def add_source(name, desc):
+    sources[name] = desc
+
+add_source("ball", SOURCE_BALL_DESC)
+add_source("smpte", SOURCE_SMPTE_DESC)
+add_source("canned", SOURCE_CANNED_DESC)
 
 class WebRTCClient:
     def __init__(
@@ -150,12 +159,8 @@ class WebRTCClient:
         self.pipe.add(self.output_bin)
 
     def get_source_desc(self):
-        if self.source == "1":
-            return SOURCE_1_DESC
-        elif self.source == "2":
-            return SOURCE_2_DESC
-        elif self.source == "3":
-            return SOURCE_3_DESC
+        if self.source in sources:
+            return sources[self.source]
         else:
             raise ValueError(f"Invalid source: {self.source}")
 
@@ -320,7 +325,7 @@ def check_plugin_features():
     return True
 
 
-async def toggle_source_on_newline(webrtc_client):
+async def switch_source_on_newline(webrtc_client):
     """Read from stdin and toggle source on newline"""
     loop = asyncio.get_event_loop()
     reader = asyncio.StreamReader()
@@ -332,8 +337,11 @@ async def toggle_source_on_newline(webrtc_client):
             line = await reader.readline()
             if not line:  # EOF
                 break
-            # Toggle between sources 1 and 2
-            new_source = "2" if webrtc_client.source == "1" else "1"
+            # Cycle through all available sources
+            source_list = list(sources.keys())
+            current_index = source_list.index(webrtc_client.source) if webrtc_client.source in source_list else -1
+            next_index = (current_index + 1) % len(source_list)
+            new_source = source_list[next_index]
             webrtc_client.set_source(new_source)
         except asyncio.CancelledError:
             break
@@ -353,8 +361,8 @@ def main():
     )
     parser.add_argument(
         "--source",
-        default="1",
-        help="Source to use for the video stream, either 1 or 2",
+        default="ball",
+        help=f"Source to use for the video stream, one of: {list(sources.keys())}",
     )
     args = parser.parse_args()
     if not check_plugin_features():
@@ -375,7 +383,7 @@ def main():
     )
 
     # Start stdin reading task
-    stdin_task = loop.create_task(toggle_source_on_newline(c))
+    stdin_task = loop.create_task(switch_source_on_newline(c))
     try:
         loop.run_until_complete(c.connect())
         res = loop.run_until_complete(c.loop())
