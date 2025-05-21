@@ -40,6 +40,12 @@ videotestsrc is-live=true pattern=smpte background-color=0xFF00FF00 ! videoconve
  x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30
 """
 
+# TODO: when the video ends, it doesn't loop back to the beginning.
+# I tried https://stackoverflow.com/a/6997879 but nothing happened.
+
+# TODO: demux.audio_0 ! fakesink fails with
+# default gst/parse/grammar.y:950:gst_parse_no_more_pads:<demux> warning: failed delayed linking pad banana_audio_0 of GstQTDemux named demux to some pad of GstQueue named queue5
+# but for some reason, without it, linking video_0 fails.
 SOURCE_CANNED_DESC = """
 filesrc location=/code/videos/video.mp4 ! qtdemux name=demux
 demux.video_0 ! h264parse ! avdec_h264 ! videoscale ! videorate !
