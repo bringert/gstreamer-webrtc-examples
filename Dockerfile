@@ -12,6 +12,7 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
         gstreamer1.0-nice \
         gstreamer1.0-tools \
         gstreamer1.0-libcamera \
+        gstreamer1.0-libav \
         libcamera-tools \
         libexif12 \
         libunwind8 \
