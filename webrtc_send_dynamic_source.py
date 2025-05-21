@@ -178,9 +178,9 @@ class WebRTCClient:
 
     def set_source_bin(self, src_bin):
         if self.video_src_bin:
-            self.video_src_bin.set_state(Gst.State.NULL)
             self.video_src_bin.unlink(self.output_bin)
             self.pipe.remove(self.video_src_bin)
+            self.video_src_bin = None
 
         if src_bin:
             self.video_src_bin = src_bin
@@ -234,6 +234,10 @@ class WebRTCClient:
         except Exception:
             logger.exception("Failed to create new source bin")
             new_src_bin = None
+
+        # Stop the old source
+        if self.video_src_bin:
+            self.video_src_bin.set_state(Gst.State.NULL)
 
         logger.info("Waiting for source pad to become idle before switching sources")
         self.video_src_bin.get_static_pad("src").add_probe(
