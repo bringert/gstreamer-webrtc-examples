@@ -148,16 +148,21 @@ class WebRTCClient:
         self.output_bin = Gst.parse_bin_from_description(WEBRTC_OUTPUT_DESC, True)
         self.pipe.add(self.output_bin)
 
-    def create_source_bin(self):
-        logger.info(f"Creating new video source bin for source {self.source}")
+    def get_source_desc(self):
         if self.source == "1":
-            return Gst.parse_bin_from_description(SOURCE_1_DESC, True)
+            return SOURCE_1_DESC
         elif self.source == "2":
-            return Gst.parse_bin_from_description(SOURCE_2_DESC, True)
+            return SOURCE_2_DESC
         elif self.source == "3":
-            return Gst.parse_bin_from_description(SOURCE_3_DESC, True)
+            return SOURCE_3_DESC
         else:
             raise ValueError(f"Invalid source: {self.source}")
+
+    def create_source_bin(self):
+        logger.info(f"Creating new video source bin for source {self.source}")
+        desc = self.get_source_desc()
+        logger.info(f"Source bin: {desc}")
+        return Gst.parse_bin_from_description(desc, True)
 
     def set_source_bin(self, src_bin):
         if self.video_src_bin:
