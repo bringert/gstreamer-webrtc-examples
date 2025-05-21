@@ -372,7 +372,8 @@ def main():
     parser.add_argument(
         "--source",
         default="ball",
-        help=f"Source to use for the video stream, one of: {list(sources.keys())}",
+        choices=list(sources.keys()),
+        help="Source to use for the video stream",
     )
     args = parser.parse_args()
     if not check_plugin_features():

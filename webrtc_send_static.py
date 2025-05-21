@@ -29,22 +29,31 @@ from gi.repository import Gst, GstWebRTC, GstSdp
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-SOURCE_1_DESC = """
+SOURCE_BALL_DESC = """
 videotestsrc is-live=true pattern=ball ! videoconvert ! queue !
 x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30"""
 
-SOURCE_2_DESC = """
+SOURCE_SMPTE_DESC = """
 videotestsrc is-live=true pattern=smpte background-color=0xFF00FF00 ! videoconvert ! queue !
 x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30
 """
 
-SOURCE_3_DESC = """
+SOURCE_CANNED_DESC = """
 filesrc location=/code/videos/video.mp4 !
 decodebin ! videoscale ! videorate !
 video/x-raw,width=1920,height=1080,framerate=30/1 !
 videoconvert ! queue !
 x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30
 """
+
+sources = {}
+
+def add_source(name, desc):
+    sources[name] = desc
+
+add_source("ball", SOURCE_BALL_DESC)
+add_source("smpte", SOURCE_SMPTE_DESC)
+add_source("canned", SOURCE_CANNED_DESC)
 
 WEBRTC_OUTPUT_DESC = """
 rtph264pay aggregate-mode=zero-latency config-interval=-1 !
@@ -141,12 +150,8 @@ class WebRTCClient:
         logger.info(f"ICE gathering state changed to {state}")
 
     def get_source_str(self):
-        if self.source == "1":
-            return SOURCE_1_DESC
-        elif self.source == "2":
-            return SOURCE_2_DESC
-        elif self.source == "3":
-            return SOURCE_3_DESC
+        if self.source in sources:
+            return sources[self.source]
         else:
             raise ValueError(f"Invalid source: {self.source}")
 
@@ -276,8 +281,9 @@ def main():
     )
     parser.add_argument(
         "--source",
-        default="1",
-        help="Source to use for the video stream, either 1 or 2",
+        default="ball",
+        choices=list(sources.keys()),
+        help="Source to use for the video stream",
     )
     args = parser.parse_args()
     if not check_plugin_features():
