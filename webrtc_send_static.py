@@ -67,7 +67,7 @@ x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30
 # [117628:12:0526/132915.215469:ERROR:third_party/webrtc/modules/rtp_rtcp/source/video_rtp_depacketizer_h264.cc:81] Incorrect StapA packet.
 # [117628:12:0526/132915.215496:WARNING:third_party/webrtc/video/rtp_video_stream_receiver2.cc:1234] Failed parsing payload.
 SOURCE_TOPOTEK_2_DESC = """
-rtspsrc location=rtsp://192.168.144.108:554/stream=0 latency=0 force-non-compliant-url=true !
+rtspsrc udp-buffer-size=200000 location=rtsp://192.168.144.108:554/stream=0 latency=0 force-non-compliant-url=true !
 parsebin !
 queue !
 rtph264pay aggregate-mode=zero-latency config-interval=-1 !
@@ -85,7 +85,7 @@ webrtcbin name=webrtc_send bundle-policy=max-bundle
 # [117628:12:0526/133025.549462:WARNING:third_party/webrtc/video/video_receive_stream2.cc:840] No decodable frame in 202916 us requesting keyframe. Last RTP timestamp 1321495596, last decoded frame RTP timestamp 1321441374.
 # [117628:12:0526/133025.752606:WARNING:third_party/webrtc/video/video_receive_stream2.cc:840] No decodable frame in 203054 us requesting keyframe. Last RTP timestamp 1321507599, last decoded frame RTP timestamp 1321441374.
 SOURCE_TOPOTEK_3_DESC = """
-rtspsrc location=rtsp://192.168.144.108:554/stream=0 latency=0 force-non-compliant-url=true !
+rtspsrc udp-buffer-size=200000 location=rtsp://192.168.144.108:554/stream=0 latency=0 force-non-compliant-url=true !
 queue !
 webrtcbin name=webrtc_send latency=0 bundle-policy=max-bundle
 """
