@@ -53,17 +53,7 @@ videoconvert ! queue !
 x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30
 """
 
-# TODO: this ought to be possible without decoding and re-encoding the video,
-# but when using rtph264pay aggregate-mode=zero-latency config-interval=-1
-# we get:
-# [105277:12:0526/124629.769717:ERROR:third_party/webrtc/modules/rtp_rtcp/source/video_rtp_depacketizer_h264.cc:81] Incorrect StapA packet.
-# [105277:12:0526/124629.769727:WARNING:third_party/webrtc/video/rtp_video_stream_receiver2.cc:1234] Failed parsing payload.
-#
-# And when just piping the rtspsrc output into webrtcbin, we get
-# [117628:12:0526/130902.951723:WARNING:third_party/webrtc/modules/video_coding/packet_buffer.cc:354] Received H.264-IDR frame (SPS: 0, PPS: 0). Treating as key frame since WebRTC-SpsPpsIdrIsH264Keyframe is disabled
-# [117628:3:0526/130902.951841:ERROR:third_party/webrtc/modules/video_coding/codecs/h264/h264_decoder_impl.cc:388] avcodec_send_packet error: -1094995529
-# [117628:3:0526/130902.951924:WARNING:third_party/webrtc/video/video_receive_stream2.cc:941] Failed to decode frame. Return code: -1, SSRC: 983256420, frame RTP timestamp: 1206061364, type: key, size: 68443, width: 1920, height: 1080, spatial idx: 0, temporal idx: -1, id: 1049
-# [117628:12:0526/130903.158840:WARNING:third_party/webrtc/video/video_receive_stream2.cc:840] No decodable frame in 206864 us requesting keyframe. Last RTP timestamp 1206079587, last decoded frame RTP timestamp 1206061364.
+# TODO: this ought to be possible without decoding and re-encoding the video, but see errors below
 SOURCE_TOPOTEK_DESC = """
 rtspsrc udp-buffer-size=200000 location=rtsp://192.168.144.108:554/stream=0 latency=0 force-non-compliant-url=true !
 decodebin ! videoscale ! videorate !
@@ -71,6 +61,33 @@ video/x-raw,width=1920,height=1080,framerate=30/1 !
 videoconvert !
 queue !
 x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30
+"""
+
+# In Chrome, this produces:
+# [117628:12:0526/132915.215469:ERROR:third_party/webrtc/modules/rtp_rtcp/source/video_rtp_depacketizer_h264.cc:81] Incorrect StapA packet.
+# [117628:12:0526/132915.215496:WARNING:third_party/webrtc/video/rtp_video_stream_receiver2.cc:1234] Failed parsing payload.
+SOURCE_TOPOTEK_2_DESC = """
+rtspsrc location=rtsp://192.168.144.108:554/stream=0 latency=0 force-non-compliant-url=true !
+parsebin !
+queue !
+rtph264pay aggregate-mode=zero-latency config-interval=-1 !
+application/x-rtp,media=video,encoding-name=H264,payload=96 !
+queue !
+webrtcbin name=webrtc_send bundle-policy=max-bundle
+"""
+
+# In Chrome, this produces:
+# [117628:12:0526/133024.939882:WARNING:third_party/webrtc/modules/video_coding/packet_buffer.cc:354] Received H.264-IDR frame (SPS: 0, PPS: 0). Treating as key frame since WebRTC-SpsPpsIdrIsH264Keyframe is disabled
+# [117628:3:0526/133024.940012:ERROR:third_party/webrtc/modules/video_coding/codecs/h264/h264_decoder_impl.cc:388] avcodec_send_packet error: -1094995529
+# [117628:3:0526/133024.940041:WARNING:third_party/webrtc/video/video_receive_stream2.cc:941] Failed to decode frame. Return code: -1, SSRC: 619054009, frame RTP timestamp: 1321441374, type: key, size: 68114, width: 1920, height: 1080, spatial idx: 0, temporal idx: -1, id: 2436
+# [117628:12:0526/133025.143191:WARNING:third_party/webrtc/video/video_receive_stream2.cc:840] No decodable frame in 203068 us requesting keyframe. Last RTP timestamp 1321459586, last decoded frame RTP timestamp 1321441374.
+# [117628:12:0526/133025.346359:WARNING:third_party/webrtc/video/video_receive_stream2.cc:840] No decodable frame in 203087 us requesting keyframe. Last RTP timestamp 1321477587, last decoded frame RTP timestamp 1321441374.
+# [117628:12:0526/133025.549462:WARNING:third_party/webrtc/video/video_receive_stream2.cc:840] No decodable frame in 202916 us requesting keyframe. Last RTP timestamp 1321495596, last decoded frame RTP timestamp 1321441374.
+# [117628:12:0526/133025.752606:WARNING:third_party/webrtc/video/video_receive_stream2.cc:840] No decodable frame in 203054 us requesting keyframe. Last RTP timestamp 1321507599, last decoded frame RTP timestamp 1321441374.
+SOURCE_TOPOTEK_3_DESC = """
+rtspsrc location=rtsp://192.168.144.108:554/stream=0 latency=0 force-non-compliant-url=true !
+queue !
+webrtcbin name=webrtc_send latency=0 bundle-policy=max-bundle
 """
 
 sources = {}
@@ -82,6 +99,8 @@ add_source("ball", SOURCE_BALL_DESC + " ! " + WEBRTC_OUTPUT_DESC)
 add_source("smpte", SOURCE_SMPTE_DESC + " ! " + WEBRTC_OUTPUT_DESC)
 add_source("canned", SOURCE_CANNED_DESC + " ! " + WEBRTC_OUTPUT_DESC)
 add_source("topotek", SOURCE_TOPOTEK_DESC + " ! " + WEBRTC_OUTPUT_DESC)
+add_source("topotek2", SOURCE_TOPOTEK_2_DESC)
+add_source("topotek3", SOURCE_TOPOTEK_3_DESC)
 
 class WebRTCClient:
     def __init__(
