@@ -46,6 +46,11 @@ videoconvert ! queue !
 x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30
 """
 
+SOURCE_TOPOTEK_DESC = """
+rtspsrc udp-buffer-size=200000 location=rtsp://192.168.144.108:554/stream=0 latency=0 force-non-compliant-url=true !
+parsebin
+"""
+
 sources = {}
 
 def add_source(name, desc):
@@ -54,6 +59,7 @@ def add_source(name, desc):
 add_source("ball", SOURCE_BALL_DESC)
 add_source("smpte", SOURCE_SMPTE_DESC)
 add_source("canned", SOURCE_CANNED_DESC)
+add_source("topotek", SOURCE_TOPOTEK_DESC)
 
 WEBRTC_OUTPUT_DESC = """
 rtph264pay aggregate-mode=zero-latency config-interval=-1 !

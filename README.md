@@ -14,9 +14,14 @@ To keep it minimal, the example is video-only (no audio), and send-only
 
 2. Pick a random number `NNNNN`
 
-3. Run the example, substituing `NNNNN` with your random number:
+3. Run the static example, substituing `NNNNN` with your random number:
     ```bash
-    docker run --rm -it --init --name webrtc_example webrtc_example webrtc webrtc_example webrtc_send_dynamic_source.py --our-id=NNNNN
+    docker run --rm -it --init --network host --name webrtc_example webrtc_example webrtc_send_static.py --our-id=NNNNN
+    ```
+
+3. Run the dynamic example, substituing `NNNNN` with your random number:
+    ```bash
+    docker run --rm -it --init --network host --name webrtc_example webrtc_example webrtc_send_dynamic_source.py --our-id=NNNNN
     ```
 
 4. Open <https://webrtc.gstreamer.net/>
